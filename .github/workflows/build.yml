@@ -1,0 +1,59 @@
+name: Build and release
+
+# בונה את התוכנה מהקוד הפרטי ומפרסם כאן שחרור, כך שהקוד נשאר פרטי והתוכנה מתעדכנת מהמאגר הזה.
+# לפרסום גרסה חדשה: משנים את המספר בקובץ release-version.txt (הוא חייב להיות חדש).
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - 'claude/**'
+    paths:
+      - release-version.txt
+      - .github/workflows/build.yml
+
+permissions:
+  contents: write
+
+env:
+  SOURCE_REPO: MOTEL-hue/mizrak
+  SOURCE_REF: claude/trusting-fermat-cfc4vl
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Read version
+        id: version
+        shell: bash
+        run: echo "value=$(tr -d '[:space:]' < release-version.txt)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v6
+        with:
+          repository: ${{ env.SOURCE_REPO }}
+          ref: ${{ env.SOURCE_REF }}
+          token: ${{ secrets.MIZRAK_SOURCE_TOKEN }}
+          path: src
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: src/.node-version
+          cache: yarn
+          cache-dependency-path: src/yarn.lock
+      - run: yarn
+        working-directory: src
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
+      - name: Set version
+        working-directory: src
+        shell: bash
+        run: yarn version --no-git-tag-version --new-version "${{ steps.version.outputs.value }}"
+      - run: yarn build
+        working-directory: src
+      - name: Build installer and publish release
+        working-directory: src
+        shell: bash
+        run: >
+          ./node_modules/.bin/electron-builder --config electron-builder.yml --win --publish always
+          -c.publish.provider=github -c.publish.owner=MOTEL-hue -c.publish.repo=mizrak-releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
